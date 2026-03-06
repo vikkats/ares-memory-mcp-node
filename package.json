@@ -7,8 +7,7 @@
     "start": "node build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "^1.17.3",
-    "@modelcontextprotocol/node": "^1.17.3",
+    "@modelcontextprotocol/sdk": "^1.17.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
