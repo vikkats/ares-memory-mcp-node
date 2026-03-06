@@ -43,12 +43,11 @@ function createServer() {
 
   server.tool(
     "store_memory",
-    "Store a memory in persistent Qdrant storage",
+    "Store one memory string in persistent storage",
     {
-      text: z.string(),
-      type: z.string().optional(),
+      memory: z.string(),
     },
-    async ({ text, type }) => {
+    async ({ memory }) => {
       const id = makeId();
 
       await qdrant.upsert(COLLECTION, {
@@ -58,8 +57,7 @@ function createServer() {
             id,
             vector: [0],
             payload: {
-              text,
-              type: type ?? "general",
+              memory,
               created_at: new Date().toISOString(),
             },
           },
@@ -71,7 +69,11 @@ function createServer() {
           {
             type: "text",
             text: JSON.stringify(
-              { status: "stored", id, text, type: type ?? "general" },
+              {
+                status: "stored",
+                id,
+                memory,
+              },
               null,
               2
             ),
@@ -99,8 +101,7 @@ function createServer() {
             text: JSON.stringify(
               result.points.map((p) => ({
                 id: p.id,
-                text: p.payload?.text ?? "",
-                type: p.payload?.type ?? "general",
+                memory: p.payload?.memory ?? "",
                 created_at: p.payload?.created_at ?? null,
               })),
               null,
@@ -128,7 +129,14 @@ function createServer() {
         content: [
           {
             type: "text",
-            text: JSON.stringify({ status: "deleted", id }, null, 2),
+            text: JSON.stringify(
+              {
+                status: "deleted",
+                id,
+              },
+              null,
+              2
+            ),
           },
         ],
       };
@@ -152,7 +160,10 @@ const httpServer = http.createServer(async (req, res) => {
 
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept, mcp-session-id");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Accept, mcp-session-id"
+    );
     res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
 
     if (req.method === "OPTIONS") {
@@ -163,7 +174,12 @@ const httpServer = http.createServer(async (req, res) => {
 
     if (req.url === "/") {
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ status: "ok", name: "ares-memory-qdrant-plain" }));
+      res.end(
+        JSON.stringify({
+          status: "ok",
+          name: "ares-memory-qdrant-plain",
+        })
+      );
       return;
     }
 
