@@ -1,7 +1,7 @@
 import http from "node:http";
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/server";
-import { createNodeHttpMcpHandler } from "@modelcontextprotocol/node";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 const server = new McpServer({
   name: "ares-test",
@@ -28,18 +28,44 @@ server.tool(
 
 const port = Number(process.env.PORT || 3000);
 
-const app = http.createServer(
-  createNodeHttpMcpHandler(server, {
-    basePath: "/mcp",
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Accept", "mcp-session-id"],
-      exposedHeaders: ["mcp-session-id"],
-    },
-  })
-);
+const httpServer = http.createServer(async (req, res) => {
+  if (!req.url) {
+    res.statusCode = 400;
+    res.end("Missing URL");
+    return;
+  }
 
-app.listen(port, "0.0.0.0", () => {
+  if (req.url.startsWith("/mcp")) {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept, mcp-session-id");
+    res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+
+    if (req.method === "OPTIONS") {
+      res.statusCode = 204;
+      res.end();
+      return;
+    }
+
+    await server.connect(transport);
+    await transport.handleRequest(req, res);
+    return;
+  }
+
+  if (req.url === "/") {
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ status: "ok", name: "ares-test" }));
+    return;
+  }
+
+  res.statusCode = 404;
+  res.end("Not found");
+});
+
+httpServer.listen(port, "0.0.0.0", () => {
   console.log(`Ares MCP listening on port ${port}`);
 });
