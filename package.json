@@ -8,10 +8,11 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.3",
+    "@qdrant/js-client-rest": "^1.13.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
-    "@types/node": "^22.10.1"
+    "@types/node": "^22.10.1",
+    "typescript": "^5.6.3"
   }
 }
