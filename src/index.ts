@@ -2,8 +2,34 @@ import http from "node:http";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { QdrantClient } from "@qdrant/js-client-rest";
 
-const memories: { id: string; text: string; type: string }[] = [];
+const QDRANT_URL = process.env.QDRANT_URL;
+const QDRANT_API_KEY = process.env.QDRANT_API_KEY;
+const COLLECTION = "ares_memory_plain";
+
+if (!QDRANT_URL || !QDRANT_API_KEY) {
+  throw new Error("Missing QDRANT_URL or QDRANT_API_KEY");
+}
+
+const qdrant = new QdrantClient({
+  url: QDRANT_URL,
+  apiKey: QDRANT_API_KEY,
+});
+
+async function ensureCollection() {
+  const collections = await qdrant.getCollections();
+  const exists = collections.collections.some((c) => c.name === COLLECTION);
+
+  if (!exists) {
+    await qdrant.createCollection(COLLECTION, {
+      vectors: {
+        size: 1,
+        distance: "Cosine",
+      },
+    });
+  }
+}
 
 function makeId() {
   return Math.random().toString(36).slice(2, 10);
@@ -17,24 +43,38 @@ function createServer() {
 
   server.tool(
     "store_memory",
-    "Store a memory in temporary server memory",
+    "Store a memory in persistent Qdrant storage",
     {
       text: z.string(),
       type: z.string().optional(),
     },
     async ({ text, type }) => {
-      const item = {
-        id: makeId(),
-        text,
-        type: type ?? "general",
-      };
-      memories.push(item);
+      const id = makeId();
+
+      await qdrant.upsert(COLLECTION, {
+        wait: true,
+        points: [
+          {
+            id,
+            vector: [0],
+            payload: {
+              text,
+              type: type ?? "general",
+              created_at: new Date().toISOString(),
+            },
+          },
+        ],
+      });
 
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(item, null, 2),
+            text: JSON.stringify(
+              { status: "stored", id, text, type: type ?? "general" },
+              null,
+              2
+            ),
           },
         ],
       };
@@ -43,14 +83,29 @@ function createServer() {
 
   server.tool(
     "list_memories",
-    "List all stored memories",
+    "List all stored memories from Qdrant",
     {},
     async () => {
+      const result = await qdrant.scroll(COLLECTION, {
+        limit: 100,
+        with_payload: true,
+        with_vector: false,
+      });
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(memories, null, 2),
+            text: JSON.stringify(
+              result.points.map((p) => ({
+                id: p.id,
+                text: p.payload?.text ?? "",
+                type: p.payload?.type ?? "general",
+                created_at: p.payload?.created_at ?? null,
+              })),
+              null,
+              2
+            ),
           },
         ],
       };
@@ -64,8 +119,10 @@ function createServer() {
       id: z.string(),
     },
     async ({ id }) => {
-      const index = memories.findIndex((m) => m.id === id);
-      if (index !== -1) memories.splice(index, 1);
+      await qdrant.delete(COLLECTION, {
+        wait: true,
+        points: [id],
+      });
 
       return {
         content: [
@@ -82,6 +139,8 @@ function createServer() {
 }
 
 const port = Number(process.env.PORT || 3000);
+
+await ensureCollection();
 
 const httpServer = http.createServer(async (req, res) => {
   try {
@@ -104,7 +163,7 @@ const httpServer = http.createServer(async (req, res) => {
 
     if (req.url === "/") {
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ status: "ok", name: "ares-memory" }));
+      res.end(JSON.stringify({ status: "ok", name: "ares-memory-qdrant-plain" }));
       return;
     }
 
